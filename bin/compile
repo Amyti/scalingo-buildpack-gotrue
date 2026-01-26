@@ -1,39 +1,58 @@
 #!/usr/bin/env bash
 
-BUILD_DIR=$1
-CACHE_DIR=$2
+set -eu
 
-echo "-----> Installing GoTrue (netlify/gotrue)"
+BUILD_DIR="$1"
+CACHE_DIR="$2"
 
-GOTRUE_VERSION="${GOTRUE_VERSION:-v1.0.1}"
-REPO="netlify/gotrue"
+BIN_DIR="$BUILD_DIR/bin"
+mkdir -p "$BIN_DIR"
 
-mkdir -p "$BUILD_DIR/bin"
+echo "-----> Installing Supabase Auth (GoTrue)"
 
-JSON="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/tags/${GOTRUE_VERSION}")"
-
-# Prend la 1ère URL qui ressemble à un binaire linux amd64 (tar.gz)
-ASSET_URL="$(printf "%s" "$JSON" \
-  | grep -oE '"browser_download_url":[ ]*"[^"]+"' \
-  | cut -d'"' -f4 \
-  | grep -E 'linux.*amd64.*(tar\.gz|tgz)$' \
-  | head -n 1)"
-
-
-
-echo "-----> Downloading: $ASSET_URL"
-curl -fsSL "$ASSET_URL" | tar xz -C "$BUILD_DIR/bin"
-
-if [ -f "$BUILD_DIR/bin/gotrue" ]; then
-  chmod +x "$BUILD_DIR/bin/gotrue"
+if [ -n "${SUPABASE_AUTH_VERSION:-}" ]; then
+  TAG="$SUPABASE_AUTH_VERSION"
 else
-  BIN="$(find "$BUILD_DIR/bin" -maxdepth 1 -type f | head -n 1)"
-  if [ -z "$BIN" ]; then
-    echo "!!!! Extracted archive but no files found in $BUILD_DIR/bin"
-    exit 1
-  fi
-  mv "$BIN" "$BUILD_DIR/bin/gotrue"
-  chmod +x "$BUILD_DIR/bin/gotrue"
+  TAG="$(curl -fsSL https://api.github.com/repos/supabase/auth/releases/latest \
+    | sed -n 's/.*"tag_name":[ ]*"\([^"]*\)".*/\1/p' | head -n 1)"
 fi
 
-echo "-----> GoTrue installed at $BUILD_DIR/bin/gotrue"
+case "$TAG" in
+  v*) : ;;
+  *) TAG="v$TAG" ;;
+esac
+
+echo "-----> Using version: $TAG"
+
+RELEASE_JSON="$(curl -fsSL "https://api.github.com/repos/supabase/auth/releases/tags/$TAG")"
+ASSET_URL="$(printf "%s" "$RELEASE_JSON" \
+  | sed -n 's/.*"browser_download_url":[ ]*"\([^"]*auth-[^"]*-x86\.tar\.gz\)".*/\1/p' \
+  | head -n 1)"
+
+if [ -z "$ASSET_URL" ]; then
+  echo "!!!! No x86 tar.gz asset found for $TAG"
+  echo "!!!! Check releases assets naming on supabase/auth"
+  exit 1
+fi
+
+echo "-----> Downloading: $ASSET_URL"
+
+TMP_TGZ="$CACHE_DIR/auth-$TAG-x86.tar.gz"
+mkdir -p "$CACHE_DIR"
+
+curl -fSL "$ASSET_URL" -o "$TMP_TGZ"
+
+tar -tzf "$TMP_TGZ" >/dev/null
+
+tar -xzf "$TMP_TGZ" -C "$BIN_DIR"
+
+if [ ! -f "$BIN_DIR/auth" ]; then
+  echo "!!!! Extracted archive but no auth binary found in $BIN_DIR"
+  echo "!!!! Contents:"
+  ls -la "$BIN_DIR"
+  exit 1
+fi
+
+chmod +x "$BIN_DIR/auth"
+
+echo "-----> Supabase Auth installed to $BIN_DIR/auth"
