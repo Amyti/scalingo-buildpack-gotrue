@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
 
+cat <<EOF
+---
 default_process_types:
-  web: ./start.sh
+  web: bin/gotrue
+EOF
