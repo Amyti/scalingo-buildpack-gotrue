@@ -1,17 +1,39 @@
-#!/usr/bin/env bash
+#!/bin/sh
 
 BUILD_DIR=$1
 CACHE_DIR=$2
 
-echo "-----> Installing GoTrue"
+echo "-----> Installing GoTrue (netlify/gotrue)"
 
-GOTRUE_VERSION=2.151.0
-GOTRUE_URL="https://github.com/netlify/gotrue/releases/download/v${GOTRUE_VERSION}/gotrue_${GOTRUE_VERSION}_linux_amd64.tar.gz"
+GOTRUE_VERSION="${GOTRUE_VERSION:-v1.0.1}"
+REPO="netlify/gotrue"
 
 mkdir -p "$BUILD_DIR/bin"
 
-curl -L "$GOTRUE_URL" | tar xz -C "$BUILD_DIR/bin"
+JSON="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/tags/${GOTRUE_VERSION}")"
 
-chmod +x "$BUILD_DIR/bin/gotrue"
+# Prend la 1ère URL qui ressemble à un binaire linux amd64 (tar.gz)
+ASSET_URL="$(printf "%s" "$JSON" \
+  | grep -oE '"browser_download_url":[ ]*"[^"]+"' \
+  | cut -d'"' -f4 \
+  | grep -E 'linux.*amd64.*(tar\.gz|tgz)$' \
+  | head -n 1)"
 
-echo "-----> GoTrue installed"
+
+
+echo "-----> Downloading: $ASSET_URL"
+curl -fsSL "$ASSET_URL" | tar xz -C "$BUILD_DIR/bin"
+
+if [ -f "$BUILD_DIR/bin/gotrue" ]; then
+  chmod +x "$BUILD_DIR/bin/gotrue"
+else
+  BIN="$(find "$BUILD_DIR/bin" -maxdepth 1 -type f | head -n 1)"
+  if [ -z "$BIN" ]; then
+    echo "!!!! Extracted archive but no files found in $BUILD_DIR/bin"
+    exit 1
+  fi
+  mv "$BIN" "$BUILD_DIR/bin/gotrue"
+  chmod +x "$BUILD_DIR/bin/gotrue"
+fi
+
+echo "-----> GoTrue installed at $BUILD_DIR/bin/gotrue"
