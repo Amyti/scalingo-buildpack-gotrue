@@ -5,54 +5,63 @@ set -eu
 BUILD_DIR="$1"
 CACHE_DIR="$2"
 
-BIN_DIR="$BUILD_DIR/bin"
-mkdir -p "$BIN_DIR"
-
 echo "-----> Installing Supabase Auth (GoTrue)"
 
-if [ -n "${SUPABASE_AUTH_VERSION:-}" ]; then
-  TAG="$SUPABASE_AUTH_VERSION"
-else
-  TAG="$(curl -fsSL https://api.github.com/repos/supabase/auth/releases/latest \
-    | sed -n 's/.*"tag_name":[ ]*"\([^"]*\)".*/\1/p' | head -n 1)"
-fi
+: "${SUPABASE_AUTH_VERSION:=2.185.0}"
+AUTH_URL="https://github.com/supabase/auth/releases/download/v${SUPABASE_AUTH_VERSION}/auth-v${SUPABASE_AUTH_VERSION}-x86.tar.gz"
 
-case "$TAG" in
-  v*) : ;;
-  *) TAG="v$TAG" ;;
-esac
+mkdir -p "$BUILD_DIR/bin"
+mkdir -p "$BUILD_DIR/migrations"
 
-echo "-----> Using version: $TAG"
+echo "-----> Using version: v${SUPABASE_AUTH_VERSION}"
+echo "-----> Downloading: ${AUTH_URL}"
 
-RELEASE_JSON="$(curl -fsSL "https://api.github.com/repos/supabase/auth/releases/tags/$TAG")"
-ASSET_URL="$(printf "%s" "$RELEASE_JSON" \
-  | sed -n 's/.*"browser_download_url":[ ]*"\([^"]*auth-[^"]*-x86\.tar\.gz\)".*/\1/p' \
-  | head -n 1)"
+# -f = fail on HTTP errors, -sS = silent but show errors, -L = follow redirects
+curl -fSL "$AUTH_URL" | tar -xz -C "$BUILD_DIR/bin"
 
-if [ -z "$ASSET_URL" ]; then
-  echo "!!!! No x86 tar.gz asset found for $TAG"
-  echo "!!!! Check releases assets naming on supabase/auth"
-  exit 1
-fi
+# Le binaire peut s'appeler "auth" (c'est le cas sur leurs releases)
+chmod +x "$BUILD_DIR/bin/auth"
 
-echo "-----> Downloading: $ASSET_URL"
+echo "-----> Patching migration that hardcodes role 'postgres'"
 
-TMP_TGZ="$CACHE_DIR/auth-$TAG-x86.tar.gz"
-mkdir -p "$CACHE_DIR"
+cat > "$BUILD_DIR/migrations/20240612123726_enable_rls_update_grants.up.sql" <<'SQL'
+do $$ begin
+  -- enable RLS policy on auth tables
+  alter table auth.schema_migrations enable row level security;
+  alter table auth.instances enable row level security;
+  alter table auth.users enable row level security;
+  alter table auth.audit_log_entries enable row level security;
+  alter table auth.saml_relay_states enable row level security;
+  alter table auth.refresh_tokens enable row level security;
+  alter table auth.mfa_factors enable row level security;
+  alter table auth.sessions enable row level security;
+  alter table auth.sso_providers enable row level security;
+  alter table auth.sso_domains enable row level security;
+  alter table auth.mfa_challenges enable row level security;
+  alter table auth.mfa_amr_claims enable row level security;
+  alter table auth.saml_providers enable row level security;
+  alter table auth.flow_state enable row level security;
+  alter table auth.identities enable row level security;
+  alter table auth.one_time_tokens enable row level security;
 
-curl -fSL "$ASSET_URL" -o "$TMP_TGZ"
+  -- allow DB runtime role (current_user) to select from auth tables and re-grant select
+  grant select on auth.schema_migrations to current_user with grant option;
+  grant select on auth.instances to current_user with grant option;
+  grant select on auth.users to current_user with grant option;
+  grant select on auth.audit_log_entries to current_user with grant option;
+  grant select on auth.saml_relay_states to current_user with grant option;
+  grant select on auth.refresh_tokens to current_user with grant option;
+  grant select on auth.mfa_factors to current_user with grant option;
+  grant select on auth.sessions to current_user with grant option;
+  grant select on auth.sso_providers to current_user with grant option;
+  grant select on auth.sso_domains to current_user with grant option;
+  grant select on auth.mfa_challenges to current_user with grant option;
+  grant select on auth.mfa_amr_claims to current_user with grant option;
+  grant select on auth.saml_providers to current_user with grant option;
+  grant select on auth.flow_state to current_user with grant option;
+  grant select on auth.identities to current_user with grant option;
+  grant select on auth.one_time_tokens to current_user with grant option;
+end $$;
+SQL
 
-tar -tzf "$TMP_TGZ" >/dev/null
-
-tar -xzf "$TMP_TGZ" -C "$BIN_DIR"
-
-if [ ! -f "$BIN_DIR/auth" ]; then
-  echo "!!!! Extracted archive but no auth binary found in $BIN_DIR"
-  echo "!!!! Contents:"
-  ls -la "$BIN_DIR"
-  exit 1
-fi
-
-chmod +x "$BIN_DIR/auth"
-
-echo "-----> Supabase Auth installed to $BIN_DIR/auth"
+echo "-----> Supabase Auth installed"
