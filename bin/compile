@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+
+BUILD_DIR=$1
+CACHE_DIR=$2
+
+echo "-----> Installing GoTrue"
+
+GOTRUE_VERSION=2.151.0
+GOTRUE_URL="https://github.com/netlify/gotrue/releases/download/v${GOTRUE_VERSION}/gotrue_${GOTRUE_VERSION}_linux_amd64.tar.gz"
+
+mkdir -p "$BUILD_DIR/bin"
+
+curl -L "$GOTRUE_URL" | tar xz -C "$BUILD_DIR/bin"
+
+chmod +x "$BUILD_DIR/bin/gotrue"
+
+echo "-----> GoTrue installed"
