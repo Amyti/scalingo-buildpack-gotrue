@@ -22,6 +22,8 @@ curl -fSL "$AUTH_URL" | tar -xz -C "$BUILD_DIR/bin"
 # Le binaire peut s'appeler "auth" (c'est le cas sur leurs releases)
 chmod +x "$BUILD_DIR/bin/auth"
 
+rm -f "$BUILD_DIR/migrations/20240612123726_enable_rls_update_grants.up.sql"
+
 echo "-----> Patching migration that hardcodes role 'postgres'"
 
 cat > "$BUILD_DIR/migrations/20240612123726_enable_rls_update_grants.up.sql" <<'SQL'
