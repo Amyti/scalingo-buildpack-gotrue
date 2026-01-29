@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -eu
-
 BUILD_DIR="$1"
 
 echo "-----> Setup Supabase Auth"
@@ -10,25 +9,44 @@ VERSION_TAG="v${SUPABASE_AUTH_VERSION}"
 
 echo "-----> Installing GoTrue Binary (${VERSION_TAG})..."
 mkdir -p "$BUILD_DIR/bin"
-
-curl -fSL "https://github.com/supabase/auth/releases/download/${VERSION_TAG}/auth-${VERSION_TAG}-linux-amd64.tar.gz" | tar -xz -C "$BUILD_DIR/bin"
-
-if [ -f "$BUILD_DIR/bin/auth-${VERSION_TAG}-linux-amd64" ]; then
-    mv "$BUILD_DIR/bin/auth-${VERSION_TAG}-linux-amd64" "$BUILD_DIR/bin/auth"
-fi
-chmod +x "$BUILD_DIR/bin/auth"
-
-echo "-----> Patching SQL migrations..."
 mkdir -p "$BUILD_DIR/migrations_patched"
+
+
+
+# Ton URL qui fonctionne
+AUTH_URL="https://github.com/supabase/auth/releases/download/${VERSION_TAG}/auth-${VERSION_TAG}-x86.tar.gz"
+curl -fSL "$BIN_URL" | tar -xz -C "$BUILD_DIR/bin" || {
+    echo "ERROR: Failed to download or extract binary from $BIN_URL"
+    exit 1
+}
+
+cd "$BUILD_DIR/bin"
+ACTUAL_BIN=$(ls auth* gotrue* 2>/dev/null | head -n 1)
+if [ -n "$ACTUAL_BIN" ] && [ "$ACTUAL_BIN" != "auth" ]; then
+    mv "$ACTUAL_BIN" auth
+fi
+chmod +x auth
+cd -
+
+echo "-----> Downloading Source for Migrations..."
 TEMP_SRC=$(mktemp -d)
-curl -fSL "https://github.com/supabase/auth/archive/refs/tags/${VERSION_TAG}.tar.gz" | tar -xz -C "$TEMP_SRC"
+SRC_URL="https://github.com/supabase/auth/archive/refs/tags/${VERSION_TAG}.tar.gz"
+
+curl -fSL "$SRC_URL" | tar -xz -C "$TEMP_SRC"
+
 SRC_ROOT=$(find "$TEMP_SRC" -maxdepth 1 -type d -name "auth*")
 
-cp -r "$SRC_ROOT/migrations/"* "$BUILD_DIR/migrations_patched/"
+if [ -d "$SRC_ROOT/migrations" ]; then
+    cp "$SRC_ROOT/migrations/"*.sql "$BUILD_DIR/migrations_patched/"
+else
+    echo "ERROR: Migrations directory not found in source archive"
+    exit 1
+fi
 rm -rf "$TEMP_SRC"
 
+echo "-----> Applying patches to SQL files..."
 find "$BUILD_DIR/migrations_patched" -name "*.sql" -type f -exec sed -i 's/\bpostgres\b/current_user/g' {} +
 find "$BUILD_DIR/migrations_patched" -name "*.sql" -type f -exec sed -i 's/\bsupabase_auth_admin\b/current_user/g' {} +
 find "$BUILD_DIR/migrations_patched" -name "*.sql" -type f -exec sed -i 's/{{ index .Options "Namespace" }}/auth/g' {} +
 
-echo "-----> Buildpack finished."
+echo "-----> Buildpack preparation complete."
